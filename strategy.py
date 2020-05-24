@@ -100,6 +100,7 @@ class PerformanceProvider:
     def populate_price_change(self):
         df = pd.DataFrame(data={'Symbol': self.tickers})
         df['PercentPriceChange'] = df['Symbol'].apply(lambda r: self.get_price_change_percent(r, self.start, self.end))
+        df.set_index('Symbol', inplace=True)
         return df
 
     def populate_financial_indicators(self, year):
@@ -146,6 +147,27 @@ class PerformanceProvider:
         raw_data = pd.DataFrame(d, index=actual_tickers, columns=self.indicators)
         return raw_data
 
+    @property
+    def price_change(self):
+        return self.populate_price_change()
+
+    def combine_and_clean(self, year):
+        combined_data = self.populate_financial_indicators(year)
+        # Remove columns that have more than 20 0-values
+        combined_data = combined_data.loc[:, combined_data.isin([0]).sum() <= 20]
+
+        # Remove columns that have more than 15 nan-values
+        combined_data = combined_data.loc[:, combined_data.isna().sum() <= 15]
+
+        # Fill remaining nan-values with column mean value
+        combined_data = combined_data.apply(lambda x: x.fillna(x.mean()))
+
+        # Get price variation data only for tickers to be used
+        filtered_pc = self.price_change.loc[combined_data.index.values, :]
+        filtered_pc['Class'] = filtered_pc['PercentPriceChange'].apply(lambda r: 1 if r >= 0 else 0)
+        combined_data['Class'] = filtered_pc['Class']
+        return combined_data
+
 
 if __name__ == '__main__':
     tp = TickerProvider('./config.json')
@@ -154,9 +176,10 @@ if __name__ == '__main__':
     tech_tickers = tp.get_ticker_by_sector('Technology', from_file=True, debug=True)
     pp = PerformanceProvider(tech_tickers, '2019-01-02', '2019-12-31', './config.json')
     df = pp.populate_price_change()
-    raw_df = pp.populate_financial_indicators('2018')
+    combined_df = pp.combine_and_clean('2018')
+    test = combined_df.isna()
     print(df)
-    print(raw_df)
+    print(combined_df)
     # print(tp.get_ticker_by_sector('Technology'))
     # tp.tickers_to_csv()
     # tp.tickers_by_sectors_to_csv()
