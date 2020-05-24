@@ -1,5 +1,11 @@
 {
   "api_key": "3e839304e4585508cbaf4994f3572a51",
   "ticker_url": "https://financialmodelingprep.com/api/v3/company/stock/list",
-  "profile_url": "https://financialmodelingprep.com/api/v3/company/profile/"
+  "profile_url": "https://financialmodelingprep.com/api/v3/company/profile/",
+  "income_statement_url": "https://financialmodelingprep.com/api/v3/financials/income-statement/",
+  "balance_sheet_statement_url": "https://financialmodelingprep.com/api/v3/financials/balance-sheet-statement/",
+  "cash_flow_statement_url": "https://financialmodelingprep.com/api/v3/financials/cash-flow-statement/",
+  "financial_ratios_url": "https://financialmodelingprep.com/api/v3/financial-ratios/",
+  "company_key_metrics_url": "https://financialmodelingprep.com/api/v3/company-key-metrics/",
+  "financial_statement_growth_url": "https://financialmodelingprep.com/api/v3/financial-statement-growth/"
 }
