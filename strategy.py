@@ -34,10 +34,12 @@ class TickerProvider:
             df = pd.DataFrame.from_records(tickers_json['symbolsList'])
             return df['symbol'].to_list()
 
-    def get_ticker_by_sector(self, sector, from_file=True):
+    def get_ticker_by_sector(self, sector, from_file=True, debug=True):
         if from_file:
             df = pd.read_csv('./data/sectors.csv', index_col='Symbol')
             tickers_selected = df[df['Sector'] == sector].index.values.tolist()
+            if debug:
+                return tickers_selected[:20]
             return tickers_selected
         else:
             tickers_sector = []
@@ -70,17 +72,36 @@ class TickerProvider:
         df.to_csv('./data/sectors.csv')
 
 
-def get_price_change_percent(symbol, start, end, src='yahoo', field='Adj Close'):
-    prices = data.DataReader(symbol, src, start, end)[field]
-    last, first = prices.index[-1], prices.index[0]
-    price_change = (prices[last] - prices[first]) / prices[first] * 100
-    return price_change
+class PerformanceProvider:
+    def __init__(self, tickers, start, end):
+        self.tickers = tickers
+        self.start = start
+        self.end = end
+
+    @staticmethod
+    def get_price_change_percent(symbol, start, end, src='yahoo', field='Adj Close'):
+        try:
+            prices = data.DataReader(symbol, src, start, end)[field]
+            last, first = prices.index[-1], prices.index[0]
+            price_change = (prices[last] - prices[first]) / prices[first] * 100
+            return price_change
+        except:
+            return 0
+
+    def populate_price_change(self):
+        df = pd.DataFrame(data={'Symbol': self.tickers})
+        df['PercentPriceChange'] = df['Symbol'].apply(lambda r: self.get_price_change_percent(r, self.start, self.end))
+        return df
 
 
 if __name__ == '__main__':
     tp = TickerProvider('./config.json')
-    print(tp.get_all_tickers(from_file=True))
-    print(tp.get_ticker_by_sector('Technology', from_file=True))
+    # print(tp.get_all_tickers(from_file=True))
+    # print(tp.get_ticker_by_sector('Technology', from_file=True))
+    tech_tickers = tp.get_ticker_by_sector('Technology', from_file=True, debug=True)
+    pp = PerformanceProvider(tech_tickers, '2019-01-02', '2019-12-31')
+    df = pp.populate_price_change()
+    print(df)
     # print(tp.get_ticker_by_sector('Technology'))
     # tp.tickers_to_csv()
     # tp.tickers_by_sectors_to_csv()
