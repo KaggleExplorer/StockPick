@@ -27,7 +27,7 @@ class TickerProvider:
             df = pd.read_csv('./data/symbols.csv')
             ticker_list = df['symbol'].to_list()
             if debug:
-                return ticker_list[:20]
+                return ticker_list[:200]
             return ticker_list
         else:
             tickers_json = utils.get_json_from_url(self.ticker_url)
@@ -39,7 +39,7 @@ class TickerProvider:
             df = pd.read_csv('./data/sectors.csv', index_col='Symbol')
             tickers_selected = df[df['Sector'] == sector].index.values.tolist()
             if debug:
-                return tickers_selected[:20]
+                return tickers_selected[:200]
             return tickers_selected
         else:
             tickers_sector = []
@@ -86,6 +86,7 @@ class PerformanceProvider:
         self.financial_ratios_url = self.config['financial_ratios_url']
         self.company_key_metrics_url = self.config['company_key_metrics_url']
         self.financial_statement_growth_url = self.config['financial_statement_growth_url']
+        self._price_change = None
 
     @staticmethod
     def get_price_change_percent(symbol, start, end, src='yahoo', field='Adj Close'):
@@ -149,7 +150,10 @@ class PerformanceProvider:
 
     @property
     def price_change(self):
-        return self.populate_price_change()
+        if self._price_change is not None and not self._price_change.empty:
+            return self._price_change
+        self._price_change = self.populate_price_change()
+        return self._price_change
 
     def combine_and_clean(self, year):
         combined_data = self.populate_financial_indicators(year)
@@ -169,6 +173,158 @@ class PerformanceProvider:
         return combined_data
 
 
+class DataProcessor:
+    def __init__(self, raw_data):
+        self.raw_data = raw_data
+        self.split()
+        self.scale()
+
+    def split(self):
+        self._train, self._test = train_test_split(self.raw_data, test_size=0.2, random_state=1, stratify=self.raw_data['Class'])
+        self._X_train, self._y_train = self._train.iloc[:, :-1].values, self._train.iloc[:, -1].values
+        self._X_test, self._y_test = self._test.iloc[:, :-1].values, self._test.iloc[:, -1].values
+        print(f'Number of training samples: {self._X_train.shape[0]}')
+        print(f'Number of testing samples: {self._X_test.shape[0]}')
+        print(f'Number of features: {self._X_train.shape[1]}')
+
+    def scale(self):
+        scaler = StandardScaler()
+        scaler.fit(self._X_train)
+        self._X_train = scaler.transform(self._X_train)
+        self._X_test = scaler.transform(self._X_test)
+
+    @property
+    def X_train(self):
+        return self._X_train
+
+    @property
+    def X_test(self):
+        return self._X_test
+
+    @property
+    def y_train(self):
+        return self._y_train
+
+    @property
+    def y_test(self):
+        return self._y_test
+
+    @property
+    def train_set(self):
+        return self._train
+
+    @property
+    def test_set(self):
+        return self._test
+
+
+class Models:
+    def __init__(self, data_processor):
+        self.data_processor = data_processor
+
+    @property
+    def svm(self):
+        return self.model_svm()
+
+    @property
+    def rf(self):
+        return self.model_rf()
+
+    @property
+    def xgb(self):
+        return self.model_xgb()
+
+    @property
+    def mlp(self):
+        return self.model_mlp()
+
+    def model_svm(self):  # support vector machine
+        tuned_parameters = [{'kernel': ['rbf', 'linear'],
+                             'gamma': [1e-3, 1e-4],
+                             'C': [0.01, 0.1, 1, 10, 100]}]
+
+        clf1 = GridSearchCV(SVC(random_state=1),
+                            tuned_parameters,
+                            n_jobs=6,
+                            scoring='precision_weighted',
+                            cv=5)
+        clf1.fit(self.data_processor.X_train, self.data_processor.y_train)
+        return clf1
+
+        # print('Best score and parameters found on development set:')
+        # print('%0.3f for %r' % (clf1.best_score_, clf1.best_params_))
+
+    def model_rf(self):  # random forest
+        tuned_parameters = {'n_estimators': [32, 256, 512, 1024],
+                            'max_features': ['auto', 'sqrt'],
+                            'max_depth': [4, 5, 6, 7, 8],
+                            'criterion': ['gini', 'entropy']}
+        clf2 = GridSearchCV(RandomForestClassifier(random_state=1),
+                            tuned_parameters,
+                            n_jobs=6,
+                            scoring='precision_weighted',
+                            cv=5)
+        clf2.fit(self.data_processor.X_train, self.data_processor.y_train)
+        return clf2
+        # print('Best score and parameters found on development set:')
+        # print('%0.3f for %r' % (clf2.best_score_, clf2.best_params_))
+
+    def model_xgb(self):  # extreme gradient boosting
+        tuned_parameters = {'learning_rate': [0.01, 0.001],
+                            'max_depth': [4, 5, 6, 7, 8],
+                            'n_estimators': [32, 128, 256]}
+        clf3 = GridSearchCV(xgb.XGBClassifier(random_state=1),
+                            tuned_parameters,
+                            n_jobs=6,
+                            scoring='precision_weighted',
+                            cv=5)
+        clf3.fit(self.data_processor.X_train, self.data_processor.y_train)
+        return clf3
+        # print('Best score and parameters found on development set:')
+        # print('%0.3f for %r' % (clf3.best_score_, clf3.best_params_))
+
+    def model_mlp(self):  # multi layer perception
+        tuned_parameters = {'hidden_layer_sizes': [(32,), (64,), (32, 64, 32)],
+                            'activation': ['tanh', 'relu'],
+                            'solver': ['lbfgs', 'adam']}
+        clf4 = GridSearchCV(MLPClassifier(random_state=1, batch_size=4, early_stopping=True),
+                            tuned_parameters,
+                            n_jobs=6,
+                            scoring='precision_weighted',
+                            cv=5)
+        clf4.fit(self.data_processor.X_train, self.data_processor.y_train)
+        return clf4
+        # print('Best score, and parameters, found on development set:')
+        # print('%0.3f for %r' % (clf4.best_score_, clf4.best_params_))
+
+
+def model_evaluator(model, data_processor, performance_provider):
+    # Initial investment can be $100 for each stock whose predicted class = 1
+    buy_amount = 100
+    pvar_test = performance_provider.price_change.loc[data_processor.test_set.index.values, :]
+
+    # In new dataframe df, store all the information regarding each model's predicted class and relative pnl in $USD
+    # first column is the true class (BUY/INGORE)
+    df = pd.DataFrame(data_processor.y_test, index=data_processor.test_set.index.values, columns=['ACTUAL'])
+    df['SVM'] = model.svm.predict(data_processor.X_test)  # predict class for testing dataset
+    df['VALUE START SVM [$]'] = df['SVM'] * buy_amount  # if class = 1 --> buy $100 of that stock
+    df['VAR SVM [$]'] = (pvar_test['PercentPriceChange'].values / 100) * df['VALUE START SVM [$]']
+    df['VALUE END SVM [$]'] = df['VALUE START SVM [$]'] + df['VAR SVM [$]']  # compute final value
+    df['RF'] = model.rf.predict(data_processor.X_test)
+    df['VALUE START RF [$]'] = df['RF'] * buy_amount
+    df['VAR RF [$]'] = (pvar_test['PercentPriceChange'].values / 100) * df['VALUE START RF [$]']
+    df['VALUE END RF [$]'] = df['VALUE START RF [$]'] + df['VAR RF [$]']
+    df['XGB'] = model.xgb.predict(data_processor.X_test)
+    df['VALUE START XGB [$]'] = df['XGB'] * buy_amount
+    df['VAR XGB [$]'] = (pvar_test['PercentPriceChange'].values / 100) * df['VALUE START XGB [$]']
+    df['VALUE END XGB [$]'] = df['VALUE START XGB [$]'] + df['VAR XGB [$]']
+    df['MLP'] = model.mlp.predict(data_processor.X_test)
+    df['VALUE START MLP [$]'] = df['MLP'] * buy_amount
+    df['VAR MLP [$]'] = (pvar_test['PercentPriceChange'].values / 100) * df['VALUE START MLP [$]']
+    df['VALUE END MLP [$]'] = df['VALUE START MLP [$]'] + df['VAR MLP [$]']
+    return df
+
+
 if __name__ == '__main__':
     tp = TickerProvider('./config.json')
     # print(tp.get_all_tickers(from_file=True))
@@ -177,9 +333,12 @@ if __name__ == '__main__':
     pp = PerformanceProvider(tech_tickers, '2019-01-02', '2019-12-31', './config.json')
     df = pp.populate_price_change()
     combined_df = pp.combine_and_clean('2018')
-    test = combined_df.isna()
+    data_processor = DataProcessor(combined_df)
+    models = Models(data_processor)
+    eva = model_evaluator(models, data_processor, pp)
     print(df)
     print(combined_df)
+    print(eva)
     # print(tp.get_ticker_by_sector('Technology'))
     # tp.tickers_to_csv()
     # tp.tickers_by_sectors_to_csv()
